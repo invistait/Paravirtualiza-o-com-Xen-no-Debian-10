@@ -81,6 +81,7 @@ dpkg-divert --divert /etc/grub.d/08_linux_xen --rename /etc/grub.d/20_linux_xen
 update-grub
 cd /etc/xen
 
+#Abaixo configuração que deve ser feita no arquivo que se refere a maquina que está sendo criada, mesmo sendo criado não existia
 nano /etc/xen/lin1.cfg
 	kernel = "/boot/vmlinuz-4.19.0-5-amd64"
 	ramdisk = "/boot/initrd.img-4.19.0-5-amd64"
@@ -96,6 +97,7 @@ nano /etc/xen/lin1.cfg
 
 	# DomU settings
 	memory = 300
+	#nome da maquina de gerencia da maquina virtualizada
 	name = "debian"
 	vcpus = 1
 	maxvcpus = 1
