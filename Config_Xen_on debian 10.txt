@@ -1,0 +1,198 @@
+# O uso da "#" é para comentarios e onde não estiver são comandos como root no shell ou manuseio de arquivos de configração
+
+#Usar virtual box ou outro virtualizador
+#Maquina com hd1 com 10GB com uso Maquina Raiz Domninio 0, configurada com debian 10 usando  / com 7,5 GB "/"" e "/home" com 2,5GB onde 
+#hd2 configurações posteriores a instalação do debian 10 no hd1.
+
+#Configurações da maquina Raiz Domain-0 logo após instalação
+
+dd if=/dev/zero of=/swapfile bs=1M count=500 		#como sua maquina por padrão inicia sem swap e é aconselhavel fazer a swap em arquivo ela ao iniciar deve se criar o mesmo no caso 500Mega
+
+chmod 600 /swapfile
+mkswap -f /swapfile
+
+nano /etc/fstab 				# inserir entrada do swapfile
+ /swapfile none swap sw 0 0 
+
+ #salva e sai
+swapon -a /swapfile
+free -m  # verificando swap
+
+apt-get install htop
+apt-get install openssh-server #se desejar o acesso via ssh
+
+nano /etc/ssh/sshd_config #inserir no arquivo
+	PermitRootLogin yes
+	Port 22
+#Salvar e sair
+service ssh restart
+
+ap-get install net-tools 				#para ter comandos com ifconfig a disposição
+nano /etc/apt/sources.list 				#configurar repositorios para atualização e novos pacotes
+	deb http://deb.debian.org/debian/ bullseye main contrib non-free
+	deb http://deb.debian.org/debian/ bullseye-updates main contrib non-free
+#salvar e sair
+
+apt-get update
+apt-get install firmware-linux-nonfree 	#instalação de pacotes de firm adicionais
+apt-get install localepurge 			#pesquise a respeito, opcional
+
+
+#Inicio da instalação do Xen Server
+
+
+apt-get install xen-system-amd64 
+apt-get install xen-tools
+apt-get install xenwatch xen-utils-common xen-utils-4.11 xen-hypervisor-common xen-hypervisor-4.11-amd64 vpx-tools imvirt libnss-libvirt grub-xen libvirt
+
+apt-get install lvm2 					#para uso de volumes logicos necessário um hd a parte da instalação da maquina linux
+
+#para configurar esse segundo hd comando fdisk -l lista os hds e seus nomes no meu caso sdb , entre com o comando fdisk /dev/sdb
+as opções apertando o "m" aparece então selecione "n" e crie ua partição primaria use os valores padão informados para configurar o incio e fim da partição em seguida selecione a segunda opção "o" para formatar ela modelo Dos e agora só salvar com w e sair q. Nomeu caso este hd é de 20GB.
+
+pvcreate /dev/sdb 						#cria volume fisico
+vgcreate vg0 /dev/sdb 					#cria agrupamento de volumes com nome vg0 poderia ser outro nome de sua escolha
+lvcreate -n lin1 -L 10G vg0 			#Cria volume logico onde nossa maquina paravirtualizado no xen irá ficar
+mkfs -t ext4 /dev/vg0/lin1 				#formata o volume como sistema de arquivo ext4
+
+apt-get install bridge-utils 			#para manipular endereços de rede e seu dispositivo
+
+#no meu caso o adaptador do virtual box esta como bridge e estou pegando dhcp da rede 
+
+nano /etc/network/interfaces
+source /etc/network/interfaces.d/*
+	auto lo
+	iface lo inet loopback
+	allow_hotplug enp0s3
+	iface enp0s3 inet dhcp
+
+	auto xenbr0
+	iface xenbr0 inet dhcp
+        bridge_ports enp0s3
+#sair e salvar
+service networking restart
+
+brctl show 								#mostra a interface do bridge 
+
+#alterar a ordem de incialização do kernel para que o xen incie primeiro
+
+dpkg-divert --divert /etc/grub.d/08_linux_xen --rename /etc/grub.d/20_linux_xen
+
+update-grub
+cd /etc/xen
+
+nano /etc/xen/lin1.cfg
+	kernel = "/boot/vmlinuz-4.19.0-5-amd64"
+	ramdisk = "/boot/initrd.img-4.19.0-5-amd64"
+	extra="root=/dev/xvda1 ro"
+
+	# Path to HDD and iso file
+	disk = [
+        'phy:/dev/vg0/lin1,xvda1,w'
+       ]
+
+	# Network configuration
+	vif = ['bridge=xenbr0']
+
+	# DomU settings
+	memory = 300
+	name = "debian"
+	vcpus = 1
+	maxvcpus = 1
+#salvar e sair
+
+#Agora vamos criar um diretório em home e criar uma maquina modelo com debian 10
+
+mkdir /home/modelo
+
+apt-get install debootstrap 			#programa permite criar um sistema minimo
+
+debootstrap bullseye /home/modelo http://ftp.us.debian.org/debian 			#bullseye é a versão 10 do debian 
+
+#copiar alguns aquivos da maquina principal para a maquina que será a virtualizada
+cp -av /etc/fstab /etc/hosts /home/modelo/etc
+cp -av /etc/network/interfaces /home/modelo/etc/network
+cp -av /etc/apt/sources.list /home/modelo/etc/apt/sources.lis
+
+#agora montar a pasta modelo para realizarmos algumas preconfigurações na maquina
+
+chroot /home/modelo 			#cria jaula do sistema isolando ele da maquina raiz
+
+#inciando configurações dentro da montagem, primeiro montamos diretorios que geralmente carregam com o sistema e como essa maquina não recebeu boot vamos montar os mesmos
+
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+
+apt-get update
+apt-get install firmware-linux-nonfree
+apt-get install localepurge
+apt-get install xen-system-amd64 
+apt-get install xen-tools
+
+dpkg-reconfigure tzdata 		#fuso horario São_paulo no meu caso
+
+nano /etc/network/interfaces 
+	source /etc/network/interfaces.d/*
+	auto lo 
+	iface lo inet looback
+	
+	auto eth0
+	iface eth0 inet dhcp 
+	#salvar e sair
+ifconfig -a
+
+#criar uma swap
+dd if=/dev/zero of=/swapfile bs=1M count=500
+chmod 600 /swapfile
+mkswap -f /swapfile
+nano /etc/fstab 					
+	/swapfile none swap sw 0 0 		#inserir entrada do swapfile
+	#salva e sai
+swapon -a /swapfile
+
+apt-get clean
+localepurge
+echo 127.0.0.1 localhost debian debian.debian > /etc/hostname
+passwd root #altere a senha do root
+umount /proc
+umount /sys
+exit #sair do jaula
+
+#montando o volume logico no /mnt
+mount /dev/vg0/lin1 /mnt
+
+#Copia o sistema base para o ponto de montagem /mnt para dentro do volume logico
+
+cp -av /home/modelo/* /mnt 
+
+#enjaulando sistema novamente dentro de mnt
+chroot /mnt 
+
+#Editar fstab para adequar a este sistema
+nano /etc/fstab
+	proc /proc proc defaults 0 0
+	/dev/xvda1 / ext4 defaults 0 1
+	/swapfile none swap sw 0 0
+exit
+umount /mnt
+
+xl create -c /etc/xen/lin1.cfg 			#para criar a maquina virtual no volume logico
+
+#Irá cair direto no console da maquina virtual para login e senha 
+
+ifconfig -a
+dhclient eth0
+
+#para voltar a maquina raiz sem desligar a virtual
+ctrl+]
+#para voltar a ele 
+
+xl list 		# para ver o nome dele
+
+#xl console "nome do console no meu caso foi debian por causa do nome dado a ele no arquivo cat /etc/xen/lin1.cfg"
+xl console debian
+
+#para desligar ela dentro dela comandos normais com halt, shutdown -h now, etc..Administração de linux normal
+
+
+
