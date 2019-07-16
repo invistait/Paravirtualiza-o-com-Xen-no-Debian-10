@@ -1,5 +1,5 @@
 # O uso da "#" é para comentarios e onde não estiver são comandos como root no shell ou manuseio de arquivos de configração
-
+#De já a falta de explicação mais profundas é pra ser bem pratico e direto.
 #Usar virtual box ou outro virtualizador
 #Maquina com hd1 com 10GB com uso Maquina Raiz Domninio 0, configurada com debian 10 usando  / com 7,5 GB "/"" e "/home" com 2,5GB onde 
 #hd2 configurações posteriores a instalação do debian 10 no hd1.
